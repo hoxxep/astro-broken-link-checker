@@ -3,7 +3,7 @@
 import { parse } from 'node-html-parser';
 import fs from 'fs';
 import fetch from 'node-fetch';
-import { URL } from 'url';
+import { URL, fileURLToPath } from 'url';
 import pLimit from 'p-limit';
 
 export default async function checkLinksInHtml(
@@ -26,38 +26,36 @@ export default async function checkLinksInHtml(
         return;
       }
       const absoluteLink = new URL(link, baseUrl).href;
+
       if (checkedLinks.has(absoluteLink)) {
-        if (!checkedLinks.get(absoluteLink)) {
-          addBrokenLink(brokenLinksMap, documentPath, `${absoluteLink} - previously detected as broken`);
-          console.error(`Broken link detected in ${documentPath}: ${absoluteLink} - previously detected as broken`);
+        const isBroken = !checkedLinks.get(absoluteLink);
+        if (isBroken) {
+          addBrokenLink(brokenLinksMap, documentPath, absoluteLink);
         }
         return;
       }
 
+      let isBroken = false;
+
       if (absoluteLink.startsWith('file://') && distPath) {
         // Internal link in build mode, check if file exists
-        const filePath = absoluteLink.replace('file://', '');
+        const filePath = fileURLToPath(absoluteLink);
         if (!fs.existsSync(filePath)) {
-          addBrokenLink(brokenLinksMap, documentPath, `${link} - File does not exist`);
-          checkedLinks.set(absoluteLink, false);
-          console.error(`Broken link detected in ${documentPath}: ${link} - File does not exist`);
-        } else {
-          checkedLinks.set(absoluteLink, true);
+          isBroken = true;
         }
       } else {
         try {
           const response = await fetch(absoluteLink, { method: 'HEAD' });
-          const isOk = response.ok;
-          checkedLinks.set(absoluteLink, isOk);
-          if (!isOk) {
-            addBrokenLink(brokenLinksMap, documentPath, `${link} - ${response.status} ${response.statusText}`);
-            console.error(`Broken link detected in ${documentPath}: ${link} - ${response.status} ${response.statusText}`);
-          }
+          isBroken = !response.ok;
         } catch (error) {
-          checkedLinks.set(absoluteLink, false);
-          addBrokenLink(brokenLinksMap, documentPath, `${link} - ${error.message}`);
-          console.error(`Error checking link in ${documentPath}: ${link} - ${error.message}`);
+          isBroken = true;
         }
+      }
+
+      checkedLinks.set(absoluteLink, !isBroken);
+
+      if (isBroken) {
+        addBrokenLink(brokenLinksMap, documentPath, absoluteLink);
       }
     })
   );
@@ -79,9 +77,49 @@ function isValidUrl(url) {
   return true;
 }
 
-function addBrokenLink(brokenLinksMap, documentPath, linkInfo) {
-  if (!brokenLinksMap.has(documentPath)) {
-    brokenLinksMap.set(documentPath, []);
+function normalizePath(p) {
+  // Remove any query parameters or hash fragments
+  p = p.split('?')[0].split('#')[0];
+
+  // Ensure leading '/'
+  if (!p.startsWith('/')) {
+    p = '/' + p;
   }
-  brokenLinksMap.get(documentPath).push(linkInfo);
+  // Remove '/index.html' at the end
+  if (p.endsWith('/index.html')) {
+    p = p.slice(0, -'/index.html'.length);
+    if (p === '') {
+      p = '/';
+    }
+  }
+  return p;
+}
+
+function addBrokenLink(brokenLinksMap, documentPath, brokenLink) {
+  // Normalize document path
+  documentPath = normalizePath(documentPath);
+
+  let normalizedBrokenLink;
+
+  try {
+    const url = new URL(brokenLink);
+    if (url.protocol === 'file:') {
+      // Internal link, normalize the path
+      normalizedBrokenLink = normalizePath(url.pathname);
+    } else {
+      // External link, keep the origin and pathname
+      normalizedBrokenLink = url.origin + normalizePath(url.pathname);
+    }
+  } catch (err) {
+    // Not a valid URL, treat as path
+    normalizedBrokenLink = normalizePath(brokenLink);
+  }
+
+  if (!brokenLinksMap.has(normalizedBrokenLink)) {
+    brokenLinksMap.set(normalizedBrokenLink, new Set());
+  }
+  brokenLinksMap.get(normalizedBrokenLink).add(documentPath);
+
+  // Optional: Log when a broken link is added
+  // console.log(`Added broken link: ${normalizedBrokenLink} in document ${documentPath}`);
 }

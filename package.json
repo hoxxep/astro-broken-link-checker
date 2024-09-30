@@ -1,6 +1,6 @@
 {
   "name": "astro-broken-links-checker",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "An Astro integration to check for broken links in your website during development and build time.",
   "main": "index.js",
   "type": "module",
@@ -19,6 +19,16 @@
     "fast-glob": "^3.3.2",
     "node-fetch": "^3.3.2",
     "node-html-parser": "^6.1.13",
-    "p-limit": "^3.1.0"
+    "p-limit": "^6.1.0"
+  },
+  "devDependencies": {
+    "execa": "^9.4.0",
+    "vitest": "^2.2.1"
+  },
+  "scripts": {
+    "build": "echo 'no build needed'",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest --watch"
   }
 }
