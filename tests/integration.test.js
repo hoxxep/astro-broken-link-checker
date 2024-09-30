@@ -39,6 +39,11 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(logContent).toContain('Broken link');
     expect(logContent).toContain('/non-existent-page');
     expect(logContent).toContain('/another-missing-page');
+    expect(logContent).toContain('./relative-broken-link');
+    expect(logContent).toContain('../path/changing/relative-broken-link');
+    expect(logContent).toContain('https://non-existent-page.com/page');
+    expect(logContent).toContain('https://non-existent-page.com/page?query=string#fragment');
+
     expect(logContent).toContain('Found in');
     expect(logContent).toContain('/');
     // Remove the expectation for '/about' as a broken link
@@ -48,7 +53,8 @@ describe('Astro Broken Links Checker Integration', () => {
   it('should not report valid links as broken', () => {
     const logContent = fs.readFileSync(logFilePath, 'utf-8');
     expect(logContent).not.toContain('Broken link: /about'); // Expect '/about' to not be reported as broken
-    expect(logContent).not.toContain('Broken link: /'); // Expect '/about' to not be reported as broken
+    expect(logContent).not.toContain('Broken link: /\n'); // Expect '/about' to not be reported as broken
+    expect(logContent).not.toContain('Broken link: https://microsoft.com'); // Expect 'https://microsoft.com' to not be reported as broken
     
   });
 });

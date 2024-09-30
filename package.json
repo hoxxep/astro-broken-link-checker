@@ -27,7 +27,7 @@
   },
   "scripts": {
     "build": "echo 'no build needed'",
-    "test": "vitest",
+    "test": "cd tests && npm run build && cd .. && vitest",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest --watch"
   }

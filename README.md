@@ -1,6 +1,6 @@
 # Astro Broken Links Checker
 
-An Astro integration that checks for broken links in your website during development and build time. It logs any broken links to the console and writes them to a file, grouping them by the document in which they occur.
+An Astro integration that checks for broken links in your website during static build. It logs any broken links to the console and writes them to a file, grouping them by the document in which they occur.
 
 ## Features
 

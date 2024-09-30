@@ -1,12 +1,11 @@
-// check-links.js
-
 import { parse } from 'node-html-parser';
 import fs from 'fs';
 import fetch from 'node-fetch';
 import { URL, fileURLToPath } from 'url';
+import path from 'path';
 import pLimit from 'p-limit';
 
-export default async function checkLinksInHtml(
+export async function checkLinksInHtml(
   htmlContent,
   brokenLinksMap,
   baseUrl,
@@ -25,37 +24,70 @@ export default async function checkLinksInHtml(
       if (!isValidUrl(link)) {
         return;
       }
-      const absoluteLink = new URL(link, baseUrl).href;
+
+      let absoluteLink;
+      try {
+        
+        // Differentiate between absolute, domain-relative, and relative links
+        if (/^https?:\/\//i.test(link) || /^:\/\//i.test(link)) {
+          // Absolute URL
+          absoluteLink = link;
+        } else {
+          absoluteLink = new URL(link, "https://localhost" + baseUrl).pathname;
+          if (link !== absoluteLink) {
+            console.log('Link', link, 'was converted to', absoluteLink);
+          }
+        }
+      } catch (err) {
+        // Invalid URL, skip
+        console.log('Invalid URL in', normalizePath(documentPath), link, err);
+        return;
+      }
 
       if (checkedLinks.has(absoluteLink)) {
         const isBroken = !checkedLinks.get(absoluteLink);
         if (isBroken) {
-          addBrokenLink(brokenLinksMap, documentPath, absoluteLink);
+          addBrokenLink(brokenLinksMap, documentPath, link, distPath);
         }
         return;
       }
 
       let isBroken = false;
 
-      if (absoluteLink.startsWith('file://') && distPath) {
+      if (absoluteLink.startsWith('/') && distPath) {
         // Internal link in build mode, check if file exists
-        const filePath = fileURLToPath(absoluteLink);
-        if (!fs.existsSync(filePath)) {
+        const relativePath = absoluteLink;
+        // Potential file paths to check
+        const possiblePaths = [
+          path.join(distPath, relativePath),
+          path.join(distPath, relativePath, 'index.html'),
+          path.join(distPath, `${relativePath}.html`),
+        ];
+
+        // Check if any of the possible paths exist
+        if (!possiblePaths.some((p) => fs.existsSync(p))) {
+          // console.log('Failed paths', possiblePaths);
           isBroken = true;
         }
-      } else {
+      } else  {
+        // External link, check via HTTP request
         try {
-          const response = await fetch(absoluteLink, { method: 'HEAD' });
+          const response = await fetch(link, { method: 'GET' });
           isBroken = !response.ok;
+          if (isBroken) {
+            console.log( response.status, ' Error fetching', link);
+          }
         } catch (error) {
           isBroken = true;
+          console.log( error.errno, 'error fetching', link);
         }
       }
 
+      // Cache the link's validity
       checkedLinks.set(absoluteLink, !isBroken);
 
       if (isBroken) {
-        addBrokenLink(brokenLinksMap, documentPath, absoluteLink);
+        addBrokenLink(brokenLinksMap, documentPath, link, distPath);
       }
     })
   );
@@ -78,48 +110,39 @@ function isValidUrl(url) {
 }
 
 function normalizePath(p) {
-  // Remove any query parameters or hash fragments
+  p = p.toString();
+  // Remove query parameters and fragments
   p = p.split('?')[0].split('#')[0];
+
+  // Remove '/index.html' or '.html' suffixes
+  if (p.endsWith('/index.html')) {
+    p = p.slice(0, -'index.html'.length);
+  } else if (p.endsWith('.html')) {
+    p = p.slice(0, -'.html'.length);
+  }
 
   // Ensure leading '/'
   if (!p.startsWith('/')) {
     p = '/' + p;
   }
-  // Remove '/index.html' at the end
-  if (p.endsWith('/index.html')) {
-    p = p.slice(0, -'/index.html'.length);
-    if (p === '') {
-      p = '/';
-    }
-  }
+
   return p;
 }
 
-function addBrokenLink(brokenLinksMap, documentPath, brokenLink) {
+export function normalizeHtmlFilePath(filePath, distPath = '') {
+  return normalizePath(distPath ? path.relative(distPath, filePath) : filePath);
+}
+
+function addBrokenLink(brokenLinksMap, documentPath, brokenLink, distPath) {
   // Normalize document path
-  documentPath = normalizePath(documentPath);
+  documentPath = normalizeHtmlFilePath(documentPath, distPath);
 
-  let normalizedBrokenLink;
+  // Normalize broken link for reporting
+  let normalizedBrokenLink = brokenLink;
 
-  try {
-    const url = new URL(brokenLink);
-    if (url.protocol === 'file:') {
-      // Internal link, normalize the path
-      normalizedBrokenLink = normalizePath(url.pathname);
-    } else {
-      // External link, keep the origin and pathname
-      normalizedBrokenLink = url.origin + normalizePath(url.pathname);
-    }
-  } catch (err) {
-    // Not a valid URL, treat as path
-    normalizedBrokenLink = normalizePath(brokenLink);
-  }
 
   if (!brokenLinksMap.has(normalizedBrokenLink)) {
     brokenLinksMap.set(normalizedBrokenLink, new Set());
   }
   brokenLinksMap.get(normalizedBrokenLink).add(documentPath);
-
-  // Optional: Log when a broken link is added
-  // console.log(`Added broken link: ${normalizedBrokenLink} in document ${documentPath}`);
 }

@@ -1,9 +1,7 @@
-// index.js
-
 import { fileURLToPath } from 'url';
 import { join } from 'path';
 import fs from 'fs';
-import checkLinksInHtml from './check-links.js';
+import { checkLinksInHtml , normalizeHtmlFilePath } from './check-links.js';
 import fastGlob from 'fast-glob';
 
 export default function astroBrokenLinksChecker(options = {}) {
@@ -14,51 +12,19 @@ export default function astroBrokenLinksChecker(options = {}) {
   return {
     name: 'astro-broken-links-checker',
     hooks: {
-      'astro:server:setup': async ({ server }) => {
-        server.middlewares.use(async (req, res, next) => {
-          const originalEnd = res.end;
-          const chunks = [];
-
-          res.write = function (chunk) {
-            chunks.push(Buffer.from(chunk));
-            return res.write.apply(res, arguments);
-          };
-
-          res.end = async function (chunk) {
-            if (chunk) chunks.push(Buffer.from(chunk));
-
-            const body = Buffer.concat(chunks).toString('utf8');
-            if (res.getHeader('Content-Type')?.includes('text/html')) {
-              const baseUrl = `http://${req.headers.host}${req.url}`;
-              await checkLinksInHtml(
-                body,
-                brokenLinksMap,
-                baseUrl,
-                req.url, // Document path
-                checkedLinks
-              );
-            }
-
-            originalEnd.apply(res, arguments);
-          };
-
-          next();
-        });
-      },
       'astro:build:done': async ({ dir }) => {
-        
         const distPath = fileURLToPath(dir);
         const htmlFiles = await fastGlob('**/*.html', { cwd: distPath });
-        // Log we are checking (x) pages for broken links
         console.log(`Checking ${htmlFiles.length} html pages for broken links`);
         const checkHtmlPromises = htmlFiles.map(async (htmlFile) => {
-          const htmlContent = fs.readFileSync(join(distPath, htmlFile), 'utf8');
-          const baseUrl = 'file://' + join(distPath, htmlFile);
+          const absoluteHtmlFilePath = join(distPath, htmlFile);
+          const htmlContent = fs.readFileSync(absoluteHtmlFilePath, 'utf8');
+          const baseUrl = normalizeHtmlFilePath(absoluteHtmlFilePath, distPath);
           await checkLinksInHtml(
             htmlContent,
             brokenLinksMap,
             baseUrl,
-            htmlFile, // Document path
+            absoluteHtmlFilePath, // Document path
             checkedLinks,
             distPath
           );
