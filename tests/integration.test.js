@@ -55,6 +55,6 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(logContent).not.toContain('Broken link: /about'); // Expect '/about' to not be reported as broken
     expect(logContent).not.toContain('Broken link: /\n'); // Expect '/about' to not be reported as broken
     expect(logContent).not.toContain('Broken link: https://microsoft.com'); // Expect 'https://microsoft.com' to not be reported as broken
-    
+    expect(logContent).not.toContain('Broken link: /redirected'); // Expect '/redirected' to not be reported as broken
   });
 });

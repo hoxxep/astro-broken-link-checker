@@ -11,7 +11,9 @@ export async function checkLinksInHtml(
   baseUrl,
   documentPath,
   checkedLinks = new Map(),
-  distPath = ''
+  distPath = '',
+  astroConfigRedirects = {},
+  logger
 ) {
   const root = parse(htmlContent);
   const linkElements = root.querySelectorAll('a[href]');
@@ -34,18 +36,31 @@ export async function checkLinksInHtml(
           absoluteLink = link;
         } else {
           absoluteLink = new URL(link, "https://localhost" + baseUrl).pathname;
-          if (link !== absoluteLink) {
-            console.log('Link', link, 'was converted to', absoluteLink);
-          }
+          // if (link !== absoluteLink) {
+          //   logger.info(`Link ${link} was resolved to ${absoluteLink}`);
+          // }
         }
       } catch (err) {
         // Invalid URL, skip
-        console.log('Invalid URL in', normalizePath(documentPath), link, err);
+        logger.error(`Invalid URL in ${normalizePath(documentPath)} ${link} ${err}`);
         return;
       }
 
-      if (checkedLinks.has(absoluteLink)) {
-        const isBroken = !checkedLinks.get(absoluteLink);
+      let fetchLink = link;
+      if (absoluteLink.startsWith('/') && distPath) {
+        fetchLink = absoluteLink;
+      }
+
+      if (astroConfigRedirects[fetchLink]) {
+        // Check if the link is a redirect
+        const redirect = astroConfigRedirects[fetchLink];
+        if (redirect) {
+          fetchLink = redirect.destination ? redirect.destination : redirect;
+        }
+      }
+
+      if (checkedLinks.has(fetchLink)) {
+        const isBroken = !checkedLinks.get(fetchLink);
         if (isBroken) {
           addBrokenLink(brokenLinksMap, documentPath, link, distPath);
         }
@@ -53,10 +68,11 @@ export async function checkLinksInHtml(
       }
 
       let isBroken = false;
+     
 
-      if (absoluteLink.startsWith('/') && distPath) {
+      if (fetchLink.startsWith('/') && distPath) {
         // Internal link in build mode, check if file exists
-        const relativePath = absoluteLink;
+        const relativePath = fetchLink;
         // Potential file paths to check
         const possiblePaths = [
           path.join(distPath, relativePath),
@@ -68,22 +84,35 @@ export async function checkLinksInHtml(
         if (!possiblePaths.some((p) => fs.existsSync(p))) {
           // console.log('Failed paths', possiblePaths);
           isBroken = true;
+          // Fall back to checking a redirect file if it exists. 
+
         }
       } else  {
-        // External link, check via HTTP request
-        try {
-          const response = await fetch(link, { method: 'GET' });
-          isBroken = !response.ok;
-          if (isBroken) {
-            console.log( response.status, ' Error fetching', link);
+        // External link, check via HTTP request. Retry 3 times if ECONNRESET
+        let retries = 0;
+        while (retries < 3) {
+          try {
+            const response = await fetch(fetchLink, { method: 'GET' });
+            isBroken = !response.ok;
+            if (isBroken) {
+              logger.error(`${response.status} Error fetching ${fetchLink}`);
+            }
+            break;
+          } catch (error) {
+            isBroken = true;
+            let statusCodeNumber = error.errno == 'ENOTFOUND' ? 404 : (error.errno);
+            logger.error(`${statusCodeNumber} error fetching ${fetchLink}`);
+            if (error.errno === 'ECONNRESET') {
+              retries++;
+              continue;
+            }
+            break;
           }
-        } catch (error) {
-          isBroken = true;
-          console.log( error.errno, 'error fetching', link);
         }
       }
 
       // Cache the link's validity
+      checkedLinks.set(fetchLink, !isBroken);
       checkedLinks.set(absoluteLink, !isBroken);
 
       if (isBroken) {
