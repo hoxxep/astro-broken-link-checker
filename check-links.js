@@ -13,13 +13,18 @@ export async function checkLinksInHtml(
   checkedLinks = new Map(),
   distPath = '',
   astroConfigRedirects = {},
-  logger
+  logger,
+  checkExternalLinks = true
 ) {
   const root = parse(htmlContent);
   const linkElements = root.querySelectorAll('a[href]');
   const links = linkElements.map((el) => el.getAttribute('href'));
+  // add img src
+  const imgElements = root.querySelectorAll('img[src]');
+  const imgLinks = imgElements.map((el) => el.getAttribute('src'));
+  links.push(...imgLinks);
 
-  const limit = pLimit(10); // Limit to 10 concurrent link checks
+  const limit = pLimit(50); // Limit to 10 concurrent link checks
 
   const checkLinkPromises = links.map((link) =>
     limit(async () => {
@@ -89,27 +94,30 @@ export async function checkLinksInHtml(
         }
       } else  {
         // External link, check via HTTP request. Retry 3 times if ECONNRESET
-        let retries = 0;
-        while (retries < 3) {
-          try {
-            const response = await fetch(fetchLink, { method: 'GET' });
-            isBroken = !response.ok;
-            if (isBroken) {
-              logger.error(`${response.status} Error fetching ${fetchLink}`);
+        if (checkExternalLinks) {
+          let retries = 0;
+          while (retries < 3) {
+            try {
+              const response = await fetch(fetchLink, { method: 'GET' });
+              isBroken = !response.ok;
+              if (isBroken) {
+                logger.error(`${response.status} Error fetching ${fetchLink}`);
+              }
+              break;
+            } catch (error) {
+              isBroken = true;
+              let statusCodeNumber = error.errno == 'ENOTFOUND' ? 404 : (error.errno);
+              logger.error(`${statusCodeNumber} error fetching ${fetchLink}`);
+              if (error.errno === 'ECONNRESET') {
+                retries++;
+                continue;
+              }
+              break;
+              }
             }
-            break;
-          } catch (error) {
-            isBroken = true;
-            let statusCodeNumber = error.errno == 'ENOTFOUND' ? 404 : (error.errno);
-            logger.error(`${statusCodeNumber} error fetching ${fetchLink}`);
-            if (error.errno === 'ECONNRESET') {
-              retries++;
-              continue;
-            }
-            break;
           }
         }
-      }
+      
 
       // Cache the link's validity
       checkedLinks.set(fetchLink, !isBroken);

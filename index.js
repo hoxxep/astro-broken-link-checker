@@ -40,7 +40,8 @@ export default function astroBrokenLinksChecker(options = {}) {
             checkedLinks,
             distPath,
             astroConfigRedirects,
-            logger
+            logger,
+            options.checkExternalLinks
           );
         });
         await Promise.all(checkHtmlPromises);

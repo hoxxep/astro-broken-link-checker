@@ -43,6 +43,8 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(logContent).toContain('../path/changing/relative-broken-link');
     expect(logContent).toContain('https://non-existent-page.com/page');
     expect(logContent).toContain('https://non-existent-page.com/page?query=string#fragment');
+    expect(logContent).toContain('https://non-existent-page.com/image.jpg');
+    expect(logContent).toContain('/missing.jpg');
 
     expect(logContent).toContain('Found in');
     expect(logContent).toContain('/');
@@ -56,5 +58,6 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(logContent).not.toContain('Broken link: /\n'); // Expect '/about' to not be reported as broken
     expect(logContent).not.toContain('Broken link: https://microsoft.com'); // Expect 'https://microsoft.com' to not be reported as broken
     expect(logContent).not.toContain('Broken link: /redirected'); // Expect '/redirected' to not be reported as broken
+    expect(logContent).not.toContain('Broken link: /exists.jpg'); // Expect '/exists.jpg' to not be reported as broken
   });
 });
