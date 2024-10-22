@@ -34,10 +34,7 @@ export default defineConfig({
   integrations: [
     astroBrokenLinksChecker({
       logFilePath: 'broken-links.log', // Optional: specify the log file path
-      remoteLinksCacheFilePath: 'remote-links-cache.tsv', // Optional: specify the path to a tab-separated file to cache remote links
-      maxConcurrency: 10, // Optional: specify the maximum number of concurrent link checks
-      timeout: 3000, // Optional: specify the maximum time in milliseconds for a link check to complete
-      cacheExpiryMinutes: 30, // Optional: specify the number of minutes after which a cached externallink should be re-checked
+      checkExternalLinks: false // Optional: check external links (currently, caching to disk is not supported, and it is slow )
     }),
   ],
 });
