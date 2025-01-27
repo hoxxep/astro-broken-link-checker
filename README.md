@@ -20,14 +20,26 @@ An Astro integration that checks for broken links in your website during static 
 
 ## Installation
 
-Install the package and its peer dependencies:
+Install the package and its peer dependencies using a [GitHub reference](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#github-urls) in your `package.json`:
 
-```bash
-npm install astro-broken-links-checker
+```json
+  ...
+  "dependencies": {
+    "astro": "5.1.9",
+    "astro-broken-link-checker": "imazen/astro-broken-link-checker",
+    ...
 ```
+
+> [!NOTE]
+> In the future, if/when `astro-broken-link-checker` becomes available on NPM:
+> ```bash
+> npm install astro-broken-link-checker
+> ```
+
+Finally, update your `astro.config.mjs`
 ```js
 import { defineConfig } from 'astro/config';
-import astroBrokenLinksChecker from 'astro-broken-links-checker';
+import astroBrokenLinksChecker from 'astro-broken-link-checker';
 
 export default defineConfig({
   // ... other configurations ...
