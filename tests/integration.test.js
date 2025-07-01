@@ -39,6 +39,7 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(logContent).toContain('Broken link');
     expect(logContent).toContain('/non-existent-page');
     expect(logContent).toContain('/another-missing-page');
+    expect(logContent).toContain('/trailing-slash/');
     expect(logContent).toContain('./relative-broken-link');
     expect(logContent).toContain('../path/changing/relative-broken-link');
     expect(logContent).toContain('https://non-existent-page.com/page');

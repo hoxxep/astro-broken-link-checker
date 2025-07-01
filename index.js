@@ -1,7 +1,7 @@
-import { fileURLToPath } from 'url';
-import { join } from 'path';
+import {fileURLToPath} from 'url';
+import {join} from 'path';
 import fs from 'fs';
-import { checkLinksInHtml , normalizeHtmlFilePath } from './check-links.js';
+import {checkLinksInHtml, normalizeHtmlFilePath} from './check-links.js';
 import fastGlob from 'fast-glob';
 
 export default function astroBrokenLinksChecker(options = {}) {
@@ -10,21 +10,22 @@ export default function astroBrokenLinksChecker(options = {}) {
   const checkedLinks = new Map();
 
   return {
-    
     name: 'astro-broken-links-checker',
     hooks: {
-      'astro:config:setup': async ({ config }) => {
+      'astro:config:setup': async ({config}) => {
         //console.log('config.redirects', config.redirects);
         // save the redirects to the options
         options.astroConfigRedirects = config.redirects;
-      },
-      
-      'astro:build:done': async ({ dir, logger }) => {
 
+        // use astro trailingSlash setting, falling back to astro default of 'ignore'
+        options.trailingSlash = config.trailingSlash || 'ignore';
+      },
+
+      'astro:build:done': async ({dir, logger}) => {
         const astroConfigRedirects = options.astroConfigRedirects;
         //console.log('astroConfigRedirects', astroConfigRedirects);
         const distPath = fileURLToPath(dir);
-        const htmlFiles = await fastGlob('**/*.html', { cwd: distPath });
+        const htmlFiles = await fastGlob('**/*.html', {cwd: distPath});
         logger.info(`Checking ${htmlFiles.length} html pages for broken links`);
         // start time
         const startTime = Date.now();
@@ -41,14 +42,22 @@ export default function astroBrokenLinksChecker(options = {}) {
             distPath,
             astroConfigRedirects,
             logger,
-            options.checkExternalLinks
+            options.checkExternalLinks,
+            options.trailingSlash,
           );
         });
+
         await Promise.all(checkHtmlPromises);
         logBrokenLinks(brokenLinksMap, logFilePath, logger);
+
         // end time
         const endTime = Date.now();
         logger.info(`Time to check links: ${endTime - startTime} ms`);
+
+        // stop the build if we have broken links and the option is set
+        if (options.throwError && brokenLinksMap.size > 0) {
+          throw new Error(`Broken links detected. Check the log file: ${logFilePath}`);
+        }
       },
     },
   };
@@ -74,5 +83,9 @@ function logBrokenLinks(brokenLinksMap, logFilePath, logger) {
     }
   } else {
     logger.info('No broken links detected.');
+    if (fs.existsSync(logFilePath)) {
+      logger.info('Removing old log file:', logFilePath);
+      fs.rmSync(logFilePath);
+    }
   }
 }

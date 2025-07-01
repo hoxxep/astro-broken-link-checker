@@ -1,7 +1,7 @@
-import { parse } from 'node-html-parser';
+import {parse} from 'node-html-parser';
 import fs from 'fs';
 import fetch from 'node-fetch';
-import { URL, fileURLToPath } from 'url';
+import {URL, fileURLToPath} from 'url';
 import path from 'path';
 import pLimit from 'p-limit';
 
@@ -14,7 +14,8 @@ export async function checkLinksInHtml(
   distPath = '',
   astroConfigRedirects = {},
   logger,
-  checkExternalLinks = true
+  checkExternalLinks = true,
+  trailingSlash = 'ignore',
 ) {
   const root = parse(htmlContent);
   const linkElements = root.querySelectorAll('a[href]');
@@ -34,7 +35,6 @@ export async function checkLinksInHtml(
 
       let absoluteLink;
       try {
-        
         // Differentiate between absolute, domain-relative, and relative links
         if (/^https?:\/\//i.test(link) || /^:\/\//i.test(link)) {
           // Absolute URL
@@ -73,7 +73,6 @@ export async function checkLinksInHtml(
       }
 
       let isBroken = false;
-     
 
       if (fetchLink.startsWith('/') && distPath) {
         // Internal link in build mode, check if file exists
@@ -89,16 +88,23 @@ export async function checkLinksInHtml(
         if (!possiblePaths.some((p) => fs.existsSync(p))) {
           // console.log('Failed paths', possiblePaths);
           isBroken = true;
-          // Fall back to checking a redirect file if it exists. 
-
+          // Fall back to checking a redirect file if it exists.
         }
-      } else  {
+
+        // check trailing slash is correct on internal links
+        const re = /\/$|\.[a-z0-9]+$/;  // match trailing slash or file extension
+        if (trailingSlash === 'always' && !fetchLink.match(re)) {
+          isBroken = true;
+        } else if (trailingSlash === 'never' && fetchLink !== '/' && fetchLink.endsWith('/')) {
+          isBroken = true;
+        }
+      } else {
         // External link, check via HTTP request. Retry 3 times if ECONNRESET
         if (checkExternalLinks) {
           let retries = 0;
           while (retries < 3) {
             try {
-              const response = await fetch(fetchLink, { method: 'GET' });
+              const response = await fetch(fetchLink, {method: 'GET'});
               isBroken = !response.ok;
               if (isBroken) {
                 logger.error(`${response.status} Error fetching ${fetchLink}`);
@@ -106,18 +112,17 @@ export async function checkLinksInHtml(
               break;
             } catch (error) {
               isBroken = true;
-              let statusCodeNumber = error.errno == 'ENOTFOUND' ? 404 : (error.errno);
+              let statusCodeNumber = error.errno === 'ENOTFOUND' ? 404 : (error.errno);
               logger.error(`${statusCodeNumber} error fetching ${fetchLink}`);
               if (error.errno === 'ECONNRESET') {
                 retries++;
                 continue;
               }
               break;
-              }
             }
           }
         }
-      
+      }
 
       // Cache the link's validity
       checkedLinks.set(fetchLink, !isBroken);
@@ -134,16 +139,13 @@ export async function checkLinksInHtml(
 
 function isValidUrl(url) {
   // Skip mailto:, tel:, javascript:, and empty links
-  if (
+  return !(
     url.startsWith('mailto:') ||
     url.startsWith('tel:') ||
     url.startsWith('javascript:') ||
     url.startsWith('#') ||
     url.trim() === ''
-  ) {
-    return false;
-  }
-  return true;
+  );
 }
 
 function normalizePath(p) {
@@ -176,7 +178,6 @@ function addBrokenLink(brokenLinksMap, documentPath, brokenLink, distPath) {
 
   // Normalize broken link for reporting
   let normalizedBrokenLink = brokenLink;
-
 
   if (!brokenLinksMap.has(normalizedBrokenLink)) {
     brokenLinksMap.set(normalizedBrokenLink, new Set());
