@@ -4,9 +4,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // Configure test environment and options here
     globals: true,
     environment: 'node',
+    testTimeout: 60000,
     coverage: {
       provider: 'v8',
     },

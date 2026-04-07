@@ -68,16 +68,15 @@ export async function checkLinksInHtml(
   checkExternalLinks = true,
   trailingSlash = 'ignore',
   externalLinkCache = null,
+  base = '',
 ) {
   const root = parse(htmlContent);
-  const linkElements = root.querySelectorAll('a[href]');
-  const links = linkElements.map((el) => el.getAttribute('href'));
-  // add img src
-  const imgElements = root.querySelectorAll('img[src]');
-  const imgLinks = imgElements.map((el) => el.getAttribute('src'));
-  links.push(...imgLinks);
+  const links = [
+    ...root.querySelectorAll('a[href]').map((el) => el.getAttribute('href')),
+    ...root.querySelectorAll('img[src]').map((el) => el.getAttribute('src')),
+  ];
 
-  const limit = pLimit(50); // Limit to 10 concurrent link checks
+  const limit = pLimit(10);
 
   const checkLinkPromises = links.map((link) =>
     limit(async () => {
@@ -93,9 +92,6 @@ export async function checkLinksInHtml(
           absoluteLink = link;
         } else {
           absoluteLink = new URL(link, "https://localhost" + baseUrl).pathname;
-          // if (link !== absoluteLink) {
-          //   logger.info(`Link ${link} was resolved to ${absoluteLink}`);
-          // }
         }
       } catch (err) {
         // Invalid URL, skip
@@ -108,12 +104,13 @@ export async function checkLinksInHtml(
         fetchLink = absoluteLink;
       }
 
-      if (astroConfigRedirects[fetchLink]) {
-        // Check if the link is a redirect
-        const redirect = astroConfigRedirects[fetchLink];
-        if (redirect) {
-          fetchLink = redirect.destination ? redirect.destination : redirect;
-        }
+      // Check redirects with and without base prefix
+      const redirectKey = (base && fetchLink.startsWith(base + '/'))
+        ? fetchLink.slice(base.length)
+        : fetchLink;
+      const redirect = astroConfigRedirects[fetchLink] || astroConfigRedirects[redirectKey];
+      if (redirect) {
+        fetchLink = redirect.destination ? redirect.destination : redirect;
       }
 
       if (checkedLinks.has(fetchLink)) {
@@ -128,7 +125,13 @@ export async function checkLinksInHtml(
 
       if (fetchLink.startsWith('/') && distPath) {
         // Internal link in build mode, check if file exists
-        const relativePath = fetchLink;
+        // Strip base path prefix if configured (e.g., base: '/docs')
+        let relativePath = fetchLink;
+        if (base && relativePath.startsWith(base + '/')) {
+          relativePath = relativePath.slice(base.length);
+        } else if (base && relativePath === base) {
+          relativePath = '/';
+        }
         // Potential file paths to check
         const possiblePaths = [
           path.join(distPath, relativePath),
@@ -138,13 +141,11 @@ export async function checkLinksInHtml(
 
         // Check if any of the possible paths exist
         if (!possiblePaths.some((p) => fs.existsSync(p))) {
-          // console.log('Failed paths', possiblePaths);
           isBroken = true;
-          // Fall back to checking a redirect file if it exists.
         }
 
         // check trailing slash is correct on internal links
-        const re = /\/$|\.[a-z0-9]+$/;  // match trailing slash or file extension
+        const re = /\/$|\.[a-z0-9]+$/i;  // match trailing slash or file extension
         if (trailingSlash === 'always' && !fetchLink.match(re)) {
           isBroken = true;
         } else if (trailingSlash === 'never' && fetchLink !== '/' && fetchLink.endsWith('/')) {
@@ -162,7 +163,10 @@ export async function checkLinksInHtml(
             let statusCode = 0;
             while (retries < 3) {
               try {
-                const response = await fetch(fetchLink, {method: 'GET'});
+                const response = await fetch(fetchLink, {
+                  method: 'GET',
+                  signal: AbortSignal.timeout(3000),
+                });
                 statusCode = response.status;
                 isBroken = !response.ok;
                 if (isBroken) {
@@ -173,8 +177,11 @@ export async function checkLinksInHtml(
                 isBroken = true;
                 statusCode = error.errno === 'ENOTFOUND' ? 404 : 0;
                 logger.error(`${statusCode || error.errno} error fetching ${fetchLink}`);
-                if (error.errno === 'ECONNRESET') {
+                if (error.errno === 'ECONNRESET' || error.name === 'TimeoutError') {
                   retries++;
+                  if (retries < 3) {
+                    await new Promise(r => setTimeout(r, 500 * Math.pow(2, retries - 1)));
+                  }
                   continue;
                 }
                 break;
@@ -242,14 +249,9 @@ export function normalizeHtmlFilePath(filePath, distPath = '') {
 }
 
 function addBrokenLink(brokenLinksMap, documentPath, brokenLink, distPath) {
-  // Normalize document path
   documentPath = normalizeHtmlFilePath(documentPath, distPath);
-
-  // Normalize broken link for reporting
-  let normalizedBrokenLink = brokenLink;
-
-  if (!brokenLinksMap.has(normalizedBrokenLink)) {
-    brokenLinksMap.set(normalizedBrokenLink, new Set());
+  if (!brokenLinksMap.has(brokenLink)) {
+    brokenLinksMap.set(brokenLink, new Set());
   }
-  brokenLinksMap.get(normalizedBrokenLink).add(documentPath);
+  brokenLinksMap.get(brokenLink).add(documentPath);
 }

@@ -3,6 +3,7 @@ import {join} from 'path';
 import fs from 'fs';
 import {checkLinksInHtml, normalizeHtmlFilePath, loadExternalLinkCache, saveExternalLinkCache} from './check-links.js';
 import fastGlob from 'fast-glob';
+import pLimit from 'p-limit';
 
 const LINK_CHECKER_DIR = '.link-checker';
 const VERIFIED_LINKS_FILE = 'verified-external-links.tsv';
@@ -40,17 +41,18 @@ export default function astroBrokenLinksChecker(options = {}) {
     name: 'astro-broken-links-checker',
     hooks: {
       'astro:config:setup': async ({config}) => {
-        //console.log('config.redirects', config.redirects);
-        // save the redirects to the options
         options.astroConfigRedirects = config.redirects;
-
-        // use astro trailingSlash setting, falling back to astro default of 'ignore'
         options.trailingSlash = config.trailingSlash || 'ignore';
+
+        // Normalize base path: ensure leading slash, strip trailing slash
+        let base = config.base || '';
+        if (base && !base.startsWith('/')) base = '/' + base;
+        if (base.endsWith('/')) base = base.slice(0, -1);
+        options.base = base;
       },
 
       'astro:build:done': async ({dir, logger}) => {
         const astroConfigRedirects = options.astroConfigRedirects;
-        //console.log('astroConfigRedirects', astroConfigRedirects);
         const distPath = fileURLToPath(dir);
         const htmlFiles = await fastGlob('**/*.html', {cwd: distPath});
         logger.info(`Checking ${htmlFiles.length} html pages for broken links`);
@@ -68,26 +70,30 @@ export default function astroBrokenLinksChecker(options = {}) {
           }
         }
 
-        // start time
         const startTime = Date.now();
-        const checkHtmlPromises = htmlFiles.map(async (htmlFile) => {
-          const absoluteHtmlFilePath = join(distPath, htmlFile);
-          const htmlContent = fs.readFileSync(absoluteHtmlFilePath, 'utf8');
-          const baseUrl = normalizeHtmlFilePath(absoluteHtmlFilePath, distPath);
-          await checkLinksInHtml(
-            htmlContent,
-            brokenLinksMap,
-            baseUrl,
-            absoluteHtmlFilePath, // Document path
-            checkedLinks,
-            distPath,
-            astroConfigRedirects,
-            logger,
-            options.checkExternalLinks,
-            options.trailingSlash,
-            externalLinkCache,
-          );
-        });
+        // Limit concurrent page processing to avoid OOM on large sites
+        const pageLimit = pLimit(50);
+        const checkHtmlPromises = htmlFiles.map((htmlFile) =>
+          pageLimit(async () => {
+            const absoluteHtmlFilePath = join(distPath, htmlFile);
+            const htmlContent = fs.readFileSync(absoluteHtmlFilePath, 'utf8');
+            const baseUrl = normalizeHtmlFilePath(absoluteHtmlFilePath, distPath);
+            await checkLinksInHtml(
+              htmlContent,
+              brokenLinksMap,
+              baseUrl,
+              absoluteHtmlFilePath, // Document path
+              checkedLinks,
+              distPath,
+              astroConfigRedirects,
+              logger,
+              options.checkExternalLinks,
+              options.trailingSlash,
+              externalLinkCache,
+              options.base,
+            );
+          })
+        );
 
         await Promise.all(checkHtmlPromises);
 
@@ -98,10 +104,7 @@ export default function astroBrokenLinksChecker(options = {}) {
         }
 
         logBrokenLinks(brokenLinksMap, logFilePath, logger, linkCheckerDir);
-
-        // end time
-        const endTime = Date.now();
-        logger.info(`Time to check links: ${endTime - startTime} ms`);
+        logger.info(`Time to check links: ${Date.now() - startTime} ms`);
 
         // stop the build if we have broken links and the option is set
         if (options.throwError && brokenLinksMap.size > 0) {
@@ -116,28 +119,19 @@ function logBrokenLinks(brokenLinksMap, logFilePath, logger, linkCheckerDir) {
   if (brokenLinksMap.size > 0) {
     let logData = '';
     for (const [brokenLink, documentsSet] of brokenLinksMap.entries()) {
-      const documents = Array.from(documentsSet);
       logData += `Broken link: ${brokenLink}\n  Found in:\n`;
-      for (const doc of documents) {
+      for (const doc of documentsSet) {
         logData += `    - ${doc}\n`;
       }
     }
     logData = logData.trim();
-    if (logFilePath) {
-      // Ensure directory exists with .gitignore
-      if (linkCheckerDir) {
-        ensureLinkCheckerDir(linkCheckerDir);
-      }
-      fs.writeFileSync(logFilePath, logData, 'utf8');
-      logger.info(`Broken links have been logged to ${logFilePath}`);
-      logger.info(logData);
-    } else {
-      logger.info(logData);
-    }
+    ensureLinkCheckerDir(linkCheckerDir);
+    fs.writeFileSync(logFilePath, logData, 'utf8');
+    logger.info(`Broken links have been logged to ${logFilePath}`);
+    logger.info(logData);
   } else {
     logger.info('No broken links detected.');
     if (fs.existsSync(logFilePath)) {
-      logger.info('Removing old log file:', logFilePath);
       fs.rmSync(logFilePath);
     }
   }

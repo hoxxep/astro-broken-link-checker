@@ -1,7 +1,7 @@
 {
   "name": "astro-broken-links-checker",
-  "version": "1.0.7",
-  "description": "An Astro integration to check for broken links in your website during development and build time.",
+  "version": "1.1.0",
+  "description": "An Astro integration that checks for broken internal and external links during static builds.",
   "main": "index.js",
   "type": "module",
   "exports": {
@@ -34,7 +34,6 @@
   "homepage": "https://github.com/imazen/astro-broken-link-checker#readme",
   "dependencies": {
     "fast-glob": "^3.3.3",
-    "node-fetch": "^3.3.2",
     "node-html-parser": "^7.0.1",
     "p-limit": "^7.2.0"
   },

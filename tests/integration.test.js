@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import fs from 'fs';
 import path from 'path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { checkLinksInHtml } from '../check-links.js';
 
 const testProjectDir = path.join(__dirname);
 const linkCheckerDir = path.join(testProjectDir, '.link-checker');
@@ -26,9 +27,7 @@ describe('Astro Broken Links Checker Integration', () => {
     // Run the build process of the test project
     buildResult = await execa('npm', ['run', 'build'], { cwd: testProjectDir });
 
-    // Display the build result
-    console.log(buildResult.stdout);
-  }, 60000); // Increase timeout if necessary
+  }, 60000);
 
   afterAll(() => {
     // Clean up
@@ -55,18 +54,15 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(logContent).toContain('/missing.jpg');
 
     expect(logContent).toContain('Found in');
-    expect(logContent).toContain('/');
-    // Remove the expectation for '/about' as a broken link
-    // expect(logContent).toContain('/about');
   });
 
   it('should not report valid links as broken', () => {
     const logContent = fs.readFileSync(logFilePath, 'utf-8');
-    expect(logContent).not.toContain('Broken link: /about'); // Expect '/about' to not be reported as broken
-    expect(logContent).not.toContain('Broken link: /\n'); // Expect '/about' to not be reported as broken
-    expect(logContent).not.toContain('Broken link: https://microsoft.com'); // Expect 'https://microsoft.com' to not be reported as broken
-    expect(logContent).not.toContain('Broken link: /redirected'); // Expect '/redirected' to not be reported as broken
-    expect(logContent).not.toContain('Broken link: /exists.jpg'); // Expect '/exists.jpg' to not be reported as broken
+    expect(logContent).not.toContain('Broken link: /about');
+    expect(logContent).not.toContain('Broken link: /\n');
+    expect(logContent).not.toContain('Broken link: https://microsoft.com');
+    expect(logContent).not.toContain('Broken link: /redirected');
+    expect(logContent).not.toContain('Broken link: /exists.jpg');
   });
 
   it('should generate .gitignore in link-checker directory', () => {
@@ -74,6 +70,28 @@ describe('Astro Broken Links Checker Integration', () => {
     expect(fs.existsSync(gitignorePath)).toBe(true);
     const content = fs.readFileSync(gitignorePath, 'utf-8');
     expect(content).toContain('broken-links.log');
+  });
+
+  it('should handle base path correctly (issue #16)', async () => {
+    const html = '<a href="/docs/about">About</a><a href="/docs/">Home</a><a href="/docs/missing">Missing</a>';
+    const brokenLinksMap = new Map();
+    const checkedLinks = new Map();
+    const distPath = path.join(testProjectDir, 'dist');
+    const logger = { info: () => {}, error: () => {} };
+
+    await checkLinksInHtml(
+      html, brokenLinksMap, '/', '/fake/index.html',
+      checkedLinks, distPath, {}, logger,
+      false, 'ignore', null, '/docs'
+    );
+
+    // /docs/about -> strips to /about -> dist/about/index.html exists
+    // /docs/ -> strips to / -> dist/index.html exists
+    // /docs/missing -> strips to /missing -> does not exist
+    const brokenLinks = Array.from(brokenLinksMap.keys());
+    expect(brokenLinks).not.toContain('/docs/about');
+    expect(brokenLinks).not.toContain('/docs/');
+    expect(brokenLinks).toContain('/docs/missing');
   });
 
   it('should use cached external links on subsequent builds', async () => {

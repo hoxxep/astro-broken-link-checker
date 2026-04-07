@@ -135,4 +135,9 @@ dist
 # generated directories
 dist/
 tests/.link-checker
+tests/.link-checker-*
+tests/.custom-checker
 tests/.astro/
+tests/dist-*/
+tests/fixtures/*/dist*/
+tests/fixtures/*/.astro/

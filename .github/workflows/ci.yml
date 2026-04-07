@@ -62,5 +62,12 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Publish to npm (skip if version already published)
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view astro-broken-links-checker@"$PACKAGE_VERSION" version 2>/dev/null || true)
+          if [ "$PUBLISHED" = "$PACKAGE_VERSION" ]; then
+            echo "Version $PACKAGE_VERSION already published, skipping."
+          else
+            npm publish --provenance --access public
+          fi

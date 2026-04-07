@@ -1,60 +1,61 @@
 # Astro Broken Links Checker
 
-An Astro integration that checks for broken links in your website during static build. It logs any broken links to the console and writes them to a file, grouping them by the document in which they occur.
-
-## Goals
-
-- **Checks Internal and External Links**: Validates all `<a href="...">` links found in your HTML pages.
-- **Logs Broken Links**: Outputs broken link information to both the console and a log file.
-- **Grouped by broken URL**: To allow for quick search and replacement, a list of all pages containing the broken URL is logged.
-- **Caching Mechanism**: Avoids redundant checks by caching the results of previously checked links, both internal and external, whether they are valid or not.
-- **Parallel Processing**: Checks links and does IO and network operations in parallel to improve performance. We first collect all links from all pages, then only check each once, first loading the tsv cache, then saving it again when we are done. All http requests happen in parallel.
-- **Local redirect awareness**: If a link is redirected in astro.config.mjs, it will be followed.
-- **Timeouts and retries**: To avoid false positives, links that fail to load with ECONNRESET are retried 3 times with exponential backoff. Timeouts are set to 3 second max including retries.
-- **Link text preservation**: The contents of "href" are only normalized to a domain-relative path (like /foo/bar/) if they are "../relative" or "./relative" or "relative" etc. It is otherwise preserved for reporting purposes.
-- **Cross-platform compatibility**: The physical paths of the html files are normalized to domain relative paths.
-- **Disk caching of verified external links**: To speed up subsequent builds, verified external links are cached to `.link-checker/verified-external-links.tsv`. This TSV file contains URL, status (ok), status code, and timestamp. Commit this file to git to avoid re-checking links on CI.
+An Astro integration that checks for broken links in your website during static builds. It validates internal links (and optionally external ones), logging any broken links to both the console and a file.
 
 ## Installation
-
-Install the package using npm:
 
 ```bash
 npm install astro-broken-links-checker
 ```
 
-> [!NOTE]
-> You can also install from GitHub if you need the latest development version:
-> ```json
->   "dependencies": {
->     "astro": "5.16.6",
->     "astro-broken-links-checker": "imazen/astro-broken-link-checker"
->   }
-> ```
+Then add it to your `astro.config.mjs`:
 
-Finally, update your `astro.config.mjs`
 ```js
 import { defineConfig } from 'astro/config';
 import astroBrokenLinksChecker from 'astro-broken-links-checker';
 
 export default defineConfig({
-  // ... other configurations ...
   integrations: [
     astroBrokenLinksChecker({
-      checkExternalLinks: true,       // Optional: check external links (default: false)
-      cacheExternalLinks: true,       // Optional: cache verified external links to disk (default: true)
-      throwError: true,               // Optional: fail the build if broken links are found (default: false)
-      linkCheckerDir: '.link-checker' // Optional: directory for cache and log files (default: '.link-checker')
+      checkExternalLinks: true, // default: false
+      throwError: true,         // default: false
     }),
   ],
 });
 ```
 
-## Output Directory
+## Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `checkExternalLinks` | `boolean` | `false` | Also check external (http/https) links via HTTP requests. |
+| `cacheExternalLinks` | `boolean` | `true` | Cache verified external links to disk to speed up subsequent builds. |
+| `throwError` | `boolean` | `false` | Fail the build if any broken links are found. |
+| `linkCheckerDir` | `string` | `'.link-checker'` | Directory for cache and log files. |
+
+## Features
+
+- **Checks `<a href>` and `<img src>`** references in all built HTML pages.
+- **Deduplication**: Each unique link is checked only once across all pages.
+- **Parallel processing**: Pages (up to 50 concurrent) and HTTP requests (up to 10 concurrent) run in parallel.
+- **Base path support**: Respects Astro's `base` config, stripping the prefix before checking file existence.
+- **Redirect awareness**: Follows redirects defined in `astro.config.mjs`.
+- **Trailing slash enforcement**: Respects Astro's `trailingSlash` setting and flags links that violate it.
+- **Timeouts and retries**: External link checks have a 3-second timeout. ECONNRESET and timeout failures are retried up to 3 times with exponential backoff.
+- **Disk caching**: Verified external links are cached to `.link-checker/verified-external-links.tsv`. Commit this file to skip re-checking on CI.
+
+## Output
 
 The integration creates a `.link-checker` directory containing:
 
-- **`verified-external-links.tsv`** - Cache of verified external links (TSV format: URL, status, statusCode, timestamp). **Commit this file to git** to avoid re-checking links on CI builds.
-- **`broken-links.log`** - Log of broken links found during build (gitignored).
+- **`verified-external-links.tsv`** — Cache of verified external links (TSV: URL, status, statusCode, timestamp). **Commit this to git** to avoid re-checking on CI.
+- **`broken-links.log`** — Broken links found during the build (gitignored automatically).
 
-The directory only appears in git when `verified-external-links.tsv` exists.
+## Compatibility
+
+- **Node.js**: 18+
+- **Astro**: 4.x and 5.x
+
+## License
+
+[Apache-2.0](LICENSE)
